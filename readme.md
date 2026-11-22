@@ -35,6 +35,22 @@ The npm package is published as `homebridge-bomgovau-v2`; the Homebridge accesso
 npm install -g homebridge-bomgovau-v2
 ```
 
+### Test a BOM feed without Homebridge
+
+The standalone script runs the plugin's fetch, parsing, and sensor-update path with mocked Homebridge services:
+
+```bash
+npm run test:bom-feed
+```
+
+By default, it tests the Penrith station feed. To test another feed, pass its URL:
+
+```bash
+npm run test:bom-feed -- "http://www.bom.gov.au/fwo/IDN60901/IDN60901.94763.json"
+```
+
+The test needs network access to BOM. It exits with an error if loading or updating the sensor values fails.
+
 ---
 
 ## Configuration
