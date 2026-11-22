@@ -1,6 +1,6 @@
 {
   "name": "homebridge-bomgovau-v2",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Makes BOM.gov.au data available in your Homebridge(Homekit) setup",
   "homepage": "https://github.com/pcoombe/homebridge-BOMgovau",
   "license": "Apache-2",
@@ -39,8 +39,10 @@
   },
   "dependencies": {
     "fakegato-history": "^0.6.2",
-      "hap-nodejs": "^0.13.0",
       "hap-nodejs-community-types": "^0.3.1"
+    },
+    "peerDependencies": {
+      "hap-nodejs": "^0.13.0"
     },
   "devDependencies": {
     "eslint": "^10.15.0"
