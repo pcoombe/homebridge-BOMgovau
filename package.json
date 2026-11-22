@@ -33,10 +33,15 @@
   },
   "main": "index.js",
   "scripts": {
+    "lint": "eslint index.js scripts/test-bom-feed.js",
+    "parse": "node --check index.js && node --check scripts/test-bom-feed.js",
     "test:bom-feed": "node scripts/test-bom-feed.js"
   },
   "dependencies": {
     "fakegato-history": "^0.6.2",
     "hap-nodejs-community-types": "^0.3.1"
+  },
+  "devDependencies": {
+    "eslint": "^10.15.0"
   }
 }

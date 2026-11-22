@@ -35,6 +35,19 @@ The npm package is published as `homebridge-bomgovau-v2`; the Homebridge accesso
 npm install -g homebridge-bomgovau-v2
 ```
 
+### Development checks
+
+The single **CI & Publish** GitHub Actions workflow runs lint and JavaScript syntax checks on pushes and pull requests. Run the same checks locally with:
+
+```bash
+npm run lint
+npm run parse
+```
+
+### Publishing to npm
+
+The **CI & Publish** workflow also publishes the package when run manually or when a GitHub release is published, after lint and parse checks pass. Before using it, add an npm publishing token as the repository Actions secret `NPM_TOKEN` under **Settings → Secrets and variables → Actions**.
+
 ### Test a BOM feed without Homebridge
 
 The standalone script runs the plugin's fetch, parsing, and sensor-update path with mocked Homebridge services:

@@ -169,7 +169,7 @@ class BOMgovauAccessory {
       }
       const hostname = url.hostname.toLowerCase();
       return hostname === "bom.gov.au" || hostname.endsWith(".bom.gov.au");
-    } catch (_) {
+    } catch {
       return false;
     }
   }
