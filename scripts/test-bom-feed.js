@@ -67,7 +67,8 @@ Module._load = function(request, parent, isMain) {
     return { Service, Characteristic };
   }
   if (request === "hap-nodejs-community-types") {
-    return () => ({ AtmosphericPressureLevel: "AtmosphericPressureLevel" });
+    // The module now receives api.hap, so we need to handle it properly
+    return (hap) => ({ AtmosphericPressureLevel: "AtmosphericPressureLevel" });
   }
   if (request === "fakegato-history") {
     return () => historyService;
@@ -81,6 +82,7 @@ function characteristicValue(service, type) {
 
 async function main() {
   const api = {
+    hap: { Service, Characteristic, uuid: () => "mock-uuid" },
     registerAccessory(pluginName, accessoryName, accessoryClass) {
       this.accessoryClass = accessoryClass;
       this.accessoryName = accessoryName;

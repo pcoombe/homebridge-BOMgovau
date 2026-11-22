@@ -75,7 +75,7 @@ class BOMgovauAccessory {
 
     // Load community types and FakeGato - instance local, not global
     /** @type {Object} */
-    this.CommunityTypes = require("hap-nodejs-community-types")(api);
+        this.CommunityTypes = require("hap-nodejs-community-types")(api.hap);
     /** @type {Function} */
     this.FakeGatoHistoryService = require("fakegato-history")(api);
 
