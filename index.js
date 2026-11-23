@@ -353,12 +353,15 @@ class BOMgovauAccessory {
     const now = Date.now();
 
     if (now < this.BOMdataExpires) {
-      this.log("[BOM gov au] BOM data will expire at " + new Date(this.BOMdataExpires).toLocaleString() + " which is in " +
+      this.log.debug("[BOM gov au] BOM data will expire at " + new Date(this.BOMdataExpires).toLocaleString() + " which is in " +
         ((this.BOMdataExpires - now) / 1000 / 60).toFixed(1) + "min");
       return;
     }
 
-    this.log("[BOM gov au] Current Time is " + now + ", BOM data expires at " + this.BOMdataExpires);
+    this.log("[BOM gov au] Current Time is " + new Date(now).toLocaleString() +
+      ", BOM data expires at " + (this.BOMdataExpires > 0
+        ? new Date(this.BOMdataExpires).toLocaleString()
+        : "not set"));
     this.log("[BOM gov au] Updating observations from BOM.");
 
     try {
@@ -368,13 +371,31 @@ class BOMgovauAccessory {
       this.log("[BOM gov au] Observations retrieved for " + this.header.name + ", " + this.header.state);
 
       this.BOMdataExpires = expiresAt;
-      this.log("[BOM gov au] BOM data will expire at " + new Date(this.BOMdataExpires).toLocaleString() + " which is in " +
+      this.log.debug("[BOM gov au] BOM data will expire at " + new Date(this.BOMdataExpires).toLocaleString() + " which is in " +
         ((this.BOMdataExpires - fetchedAt) / 1000 / 60).toFixed(1) + "min");
 
       const temperature = this._getObservationValue("air_temp", -100, 100);
       const apparentTemp = this._getObservationValue("apparent_t", -100, 100);
       const humidity = this._getObservationValue("rel_hum", 0, 100);
       const pressure = this._getObservationValue("press", 700, 1100);
+      const readings = [];
+
+      if (this.sensors.temperature) {
+        readings.push("temperature: " + (temperature === undefined ? "unavailable" : temperature + " °C"));
+      }
+      if (this.sensors.apparentTemp) {
+        readings.push("apparent temperature: " +
+          (apparentTemp === undefined ? "unavailable" : apparentTemp + " °C"));
+      }
+      if (this.sensors.humidity) {
+        readings.push("humidity: " + (humidity === undefined ? "unavailable" : humidity + "%"));
+      }
+      if (this.sensors.pressure) {
+        readings.push("pressure: " + (pressure === undefined ? "unavailable" : pressure + " hPa"));
+      }
+      if (readings.length) {
+        this.log("[BOM gov au] Current readings: " + readings.join(", "));
+      }
 
       if (this.sensors.temperature && this.temperatureService) {
         this.temperatureService.setCharacteristic(Characteristic.StatusActive, temperature !== undefined);

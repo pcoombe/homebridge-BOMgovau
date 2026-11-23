@@ -127,7 +127,9 @@ async function main() {
     }
   };
   const logErrors = [];
-  const logger = () => {};
+  const infoLogs = [];
+  const logger = (...args) => infoLogs.push(args.join(" "));
+  logger.debug = () => {};
   logger.warn = () => {};
   logger.error = (...args) => logErrors.push(args.join(" "));
 
@@ -203,6 +205,15 @@ async function main() {
     await new Promise(resolve => setImmediate(resolve));
 
     assert.equal(logErrors.length, 0, `Plugin logged errors:\n${logErrors.join("\n")}`);
+    const readingsLog = infoLogs.find(message => message.includes("[BOM gov au] Current readings:"));
+    assert.ok(readingsLog, "Successful observation retrieval should log current readings");
+    assert.ok(readingsLog.includes(`temperature: ${accessory.obs.air_temp} °C`));
+    assert.ok(readingsLog.includes(`apparent temperature: ${accessory.obs.apparent_t} °C`));
+    assert.ok(readingsLog.includes(`humidity: ${accessory.obs.rel_hum}%`));
+    assert.ok(readingsLog.includes(typeof accessory.obs.press === "number" &&
+      accessory.obs.press >= 700 && accessory.obs.press <= 1100
+      ? `pressure: ${accessory.obs.press} hPa`
+      : "pressure: unavailable"));
     assert.ok(accessory.header?.name, "BOM station name was not loaded");
     assert.ok(accessory.header?.state, "BOM station state was not loaded");
     assert.ok(/^\d{14}$/.test(accessory.obs?.aifstime_utc), "Observation timestamp is invalid");
