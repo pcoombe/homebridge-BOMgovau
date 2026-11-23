@@ -66,7 +66,7 @@ class BOMgovauAccessory {
           minStep: 1,
           perms: [Perms.PAIRED_READ, Perms.NOTIFY]
         });
-        this.value = this.getDefaultValue();
+        this.value = 1013;
       }
     }
 
@@ -177,6 +177,24 @@ class BOMgovauAccessory {
     return typeof value === "number" && Number.isFinite(value) && value >= min && value <= max
       ? value
       : undefined;
+  }
+
+  /**
+   * Returns the last valid HomeKit value, or a valid initial fallback.
+   *
+   * @param {Service} service - Sensor service
+   * @param {Characteristic} characteristic - Sensor characteristic
+   * @param {number} min - Inclusive minimum
+   * @param {number} max - Inclusive maximum
+   * @param {number} fallback - Valid value to use before a reading is available
+   * @returns {number}
+   * @private
+   */
+  _getCharacteristicFallback(service, characteristic, min, max, fallback) {
+    const value = service.getCharacteristic(characteristic).value;
+    return typeof value === "number" && Number.isFinite(value) && value >= min && value <= max
+      ? value
+      : fallback;
   }
 
   /**
@@ -463,61 +481,77 @@ class BOMgovauAccessory {
   /**
    * Gets the current air temperature.
    *
+   * Returns the last valid characteristic value while the sensor is offline.
+   *
    * @returns {Promise<number>} Temperature in Celsius
-   * @throws {Error} If temperature is unavailable or outside the supported range
    */
   async getStateTemperature() {
     await this.updateObservations();
-    const value = this._getObservationValue("air_temp", -100, 100);
-    if (value === undefined) {
-      throw new Error("BOM temperature is unavailable or outside the supported range");
-    }
-    return value;
+    return this._getObservationValue("air_temp", -100, 100) ??
+      this._getCharacteristicFallback(
+        this.temperatureService,
+        this.hap.Characteristic.CurrentTemperature,
+        -100,
+        100,
+        0
+      );
   }
 
   /**
    * Gets the current air pressure.
    *
+   * Returns the last valid characteristic value while the sensor is offline.
+   *
    * @returns {Promise<number>} Pressure in hPa
-   * @throws {Error} If pressure is unavailable or outside the supported range
    */
   async getStatePressure() {
     await this.updateObservations();
-    const value = this._getObservationValue("press", 700, 1100);
-    if (value === undefined) {
-      throw new Error("BOM pressure is unavailable or outside the supported range");
-    }
-    return value;
+    return this._getObservationValue("press", 700, 1100) ??
+      this._getCharacteristicFallback(
+        this.airPressureService,
+        this.AirPressureCharacteristic,
+        700,
+        1100,
+        1013
+      );
   }
 
   /**
    * Gets the current apparent temperature.
    *
+   * Returns the last valid characteristic value while the sensor is offline.
+   *
    * @returns {Promise<number>} Apparent temperature in Celsius
-   * @throws {Error} If apparent temperature is unavailable or outside the supported range
    */
   async getStateApparentTemperature() {
     await this.updateObservations();
-    const value = this._getObservationValue("apparent_t", -100, 100);
-    if (value === undefined) {
-      throw new Error("BOM apparent temperature is unavailable or outside the supported range");
-    }
-    return value;
+    return this._getObservationValue("apparent_t", -100, 100) ??
+      this._getCharacteristicFallback(
+        this.apparentTempService,
+        this.hap.Characteristic.CurrentTemperature,
+        -100,
+        100,
+        0
+      );
   }
 
   /**
    * Gets the current relative humidity.
    *
+   * Returns the last valid characteristic value while the sensor is offline.
+   *
    * @returns {Promise<number>} Relative humidity percentage
-   * @throws {Error} If humidity is unavailable or outside the supported range
    */
   async getStateHumidity() {
     await this.updateObservations();
-    const value = this._getObservationValue("rel_hum", 0, 100);
-    if (value === undefined) {
-      throw new Error("BOM humidity is unavailable or outside the supported range");
-    }
-    return value;
+    return this._getObservationValue("rel_hum", 0, 100) ??
+      this._getCharacteristicFallback(
+        this.humidityService,
+        this.hap.Characteristic.CurrentRelativeHumidity,
+        0,
+        100,
+        0
+      );
   }
 }
 

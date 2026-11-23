@@ -13,6 +13,7 @@ class CharacteristicMock {
     this.displayName = displayName;
     this.UUID = UUID;
     this.props = props;
+    this.value = this.getDefaultValue();
   }
 
   setProps(props) {
@@ -170,12 +171,22 @@ async function main() {
     accessory.bomClient.fetchObservations = async () => {
       throw new Error("Simulated initial BOM request failure");
     };
-    await assert.rejects(accessory.getStateTemperature(), /temperature is unavailable/,
-      "Initial temperature should be unavailable when the first BOM request fails");
-    await assert.rejects(accessory.getStateHumidity(), /humidity is unavailable/,
-      "Initial humidity should be unavailable when the first BOM request fails");
-    await assert.rejects(accessory.getStateApparentTemperature(), /apparent temperature is unavailable/,
-      "Initial apparent temperature should be unavailable when the first BOM request fails");
+    const [initialTemperature, initialHumidity, initialApparentTemperature, initialPressure] =
+      await Promise.all([
+        accessory.getStateTemperature(),
+        accessory.getStateHumidity(),
+        accessory.getStateApparentTemperature(),
+        accessory.getStatePressure()
+      ]);
+    assert.ok(initialTemperature >= -100 && initialTemperature <= 100,
+      "Initial temperature getter should return a valid fallback");
+    assert.ok(initialHumidity >= 0 && initialHumidity <= 100,
+      "Initial humidity getter should return a valid fallback");
+    assert.ok(initialApparentTemperature >= -100 && initialApparentTemperature <= 100,
+      "Initial apparent temperature getter should return a valid fallback");
+    assert.ok(initialPressure >= 700 && initialPressure <= 1100,
+      "Initial pressure getter should return a valid fallback");
+    assert.equal(initialPressure, 1013, "Initial pressure should use the in-range fallback");
     assert.equal(accessory.obs.air_temp, undefined,
       "Temperature should not start with a plausible zero reading");
     assert.equal(accessory.obs.rel_hum, undefined,
@@ -188,6 +199,8 @@ async function main() {
     assert.equal(characteristicValue(accessory.humidityService, "StatusFault"), true);
     assert.equal(characteristicValue(accessory.apparentTempService, "StatusActive"), false);
     assert.equal(characteristicValue(accessory.apparentTempService, "StatusFault"), true);
+    assert.equal(characteristicValue(accessory.airPressureService, "StatusActive"), false);
+    assert.equal(characteristicValue(accessory.airPressureService, "StatusFault"), true);
     logErrors.length = 0;
 
     let fetchCount = 0;
@@ -259,7 +272,11 @@ async function main() {
         "Pressure service should be faulted when the feed omits pressure");
       assert.equal(characteristicValue(accessory.airPressureService, "StatusActive"), false,
         "Pressure service should be offline when the feed omits pressure");
-      await assert.rejects(accessory.getStatePressure(), /pressure is unavailable/);
+      const pressureReading = await accessory.getStatePressure();
+      assert.ok(pressureReading >= 700 && pressureReading <= 1100,
+        "Missing pressure should return a valid fallback value");
+      assert.equal(characteristicValue(accessory.airPressureService, "StatusActive"), false);
+      assert.equal(characteristicValue(accessory.airPressureService, "StatusFault"), true);
     }
 
     assert.equal(historyEntries.length, 1, "A complete weather history entry should be recorded");
@@ -269,6 +286,29 @@ async function main() {
       "Missing pressure should be recorded as zero in the weather history entry");
 
     assert.ok(accessory.BOMdataExpires > Date.now(), "Observation cache expiry is not in the future");
+
+    const lastPressureValue = characteristicValue(
+      accessory.airPressureService,
+      accessory.AirPressureCharacteristic
+    );
+    const missingPressureAt = Date.now();
+    accessory.BOMdataExpires = 0;
+    accessory.bomClient.fetchObservations = async () => ({
+      observation: {
+        ...accessory.obs,
+        press: undefined
+      },
+      header: accessory.header,
+      fetchedAt: missingPressureAt,
+      expiresAt: missingPressureAt + 60_000
+    });
+    await accessory.updateObservations();
+    assert.equal(characteristicValue(accessory.airPressureService, "StatusActive"), false,
+      "A missing pressure reading should mark the pressure sensor offline");
+    assert.equal(characteristicValue(accessory.airPressureService, "StatusFault"), true,
+      "A missing pressure reading should mark the pressure sensor faulted");
+    assert.equal(await accessory.getStatePressure(), lastPressureValue,
+      "A missing pressure reading should return the last valid HomeKit pressure value");
 
     const cachedTemperature = accessory.obs.air_temp;
     const cachedExpiry = accessory.BOMdataExpires;
