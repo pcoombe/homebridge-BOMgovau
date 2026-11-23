@@ -75,7 +75,7 @@ The test needs network access to BOM. It exits with an error if loading or updat
 3. At the bottom of the station page, locate the **JSON data feed** link
 4. Copy the URL (format: `http://reg.bom.gov.au/fwo/IDX60XXX/IDX60XXX.XXXXX.json`)
 
-### Config.json (Legacy)
+### Homebridge accessory configuration
 
 ```json
 {
@@ -88,34 +88,17 @@ The test needs network access to BOM. It exits with an error if loading or updat
       "sensors": {
         "temperature": true,
         "humidity": true,
-        "apparentTemp": true
+        "apparentTemp": true,
+        "pressure": true
       }
     }
   ]
 }
 ```
 
-### Homebridge UI (Config.json for Homebridge 2.x)
-
-```json
-{
-  "platforms": [
-    {
-      "platform": "BOMgovau",
-      "name": "Canberra Airport",
-      "stationURL": "http://reg.bom.gov.au/fwo/IDN60903/IDN60903.94926.json",
-      "updateFrequency": 1800000,
-      "sensors": {
-        "temperature": true,
-        "humidity": true,
-        "apparentTemp": true
-      }
-    }
-  ]
-}
-```
-
-> **Note**: The accessory can be configured either as an accessory (`accessories` array) or platform (`platforms` array). Both work with Homebridge 2.x.
+> This plugin registers a Homebridge accessory, not a dynamic platform. Configure it under the `accessories` array; a `platforms` entry is not supported.
+>
+> Pressure is exposed as a separate Eve-compatible Air Pressure service. Sensors with unavailable or invalid readings are marked inactive and faulted, so compatible HomeKit apps can show them as offline; the plugin does not fabricate readings.
 
 ---
 
@@ -123,13 +106,14 @@ The test needs network access to BOM. It exits with an error if loading or updat
 
 | Option | Type | Required | Default | Description |
 |--------|------|----------|---------|-------------|
-| `accessory` / `platform` | string | Yes | `"BOMgovau"` | Must be `BOMgovau` |
+| `accessory` | string | Yes | `"BOMgovau"` | Must be `BOMgovau` |
 | `name` | string | Yes | - | Display name in HomeKit |
 | `stationURL` | string | No | Canberra Airport | BOM JSON observation URL |
 | `updateFrequency` | number | No | `1800000` (30 min) | Update interval in milliseconds |
 | `sensors.temperature` | boolean | No | `true` | Enable temperature sensor |
 | `sensors.humidity` | boolean | No | `true` | Enable humidity sensor |
 | `sensors.apparentTemp` | boolean | No | `true` | Enable apparent temperature sensor |
+| `sensors.pressure` | boolean | No | `true` | Enable separate Eve-compatible air-pressure service |
 
 ### Example: Disable Humidity
 
@@ -180,8 +164,8 @@ Any BOM station with a JSON observation feed. Common examples:
 
 The plugin supports [FakeGato History](https://github.com/simont77/fakegato-history) for viewing historical charts in the **Eve app** or **Home+**.
 
-- Automatically enabled when temperature or humidity sensor is active
-- Logs temperature, humidity, and pressure every 30 minutes
+- Automatically enabled when a temperature, humidity, or pressure sensor is active
+- Uses FakeGato's standard `weather` format with temperature, humidity, and pressure in every entry; missing or invalid history values are recorded as `0` (live sensors still show offline)
 - Data persists across Homebridge restarts
 
 ---

@@ -9,7 +9,6 @@
 
 "use strict";
 
-const { Service, Characteristic } = require("hap-nodejs");
 const pjson = require("./package.json");
 const dns = require("node:dns").promises;
 const { BlockList } = require("node:net");
@@ -24,6 +23,8 @@ const MAX_UPDATE_FREQUENCY = 24 * 60 * 60 * 1000;
 const FETCH_TIMEOUT_MS = 10 * 1000;
 const MAX_RESPONSE_BYTES = 1024 * 1024;
 const MAX_REDIRECTS = 3;
+const EVE_AIR_PRESSURE_SERVICE_UUID = "E863F00A-079E-48FF-8F27-9C2605A29F52";
+const EVE_AIR_PRESSURE_CHAR_UUID = "E863F10F-079E-48FF-8F27-9C2605A29F52";
 const nonPublicAddresses = new BlockList();
 [
   ["0.0.0.0", 8, "ipv4"],
@@ -56,9 +57,9 @@ class BOMgovauAccessory {
   /**
    * Creates an instance of BOMgovauAccessory.
    * 
-   * @param {HomebridgeAPI} api - Homebridge API instance
    * @param {HomebridgeLogger} logger - Homebridge logger instance
    * @param {Object} config - Accessory configuration
+   * @param {HomebridgeAPI} api - Homebridge API instance
    * @param {string} [config.name="BOM Weather Station"] - Display name for the accessory
    * @param {string} [config.stationURL] - BOM JSON observation URL (defaults to Canberra Airport)
    * @param {number} [config.updateFrequency=1800000] - Update interval in milliseconds (default 30 min)
@@ -66,16 +67,47 @@ class BOMgovauAccessory {
    * @param {boolean} [config.sensors.temperature=true] - Enable temperature sensor
    * @param {boolean} [config.sensors.humidity=true] - Enable humidity sensor
    * @param {boolean} [config.sensors.apparentTemp=true] - Enable apparent temperature sensor
+   * @param {boolean} [config.sensors.pressure=true] - Enable air pressure sensor
    */
-  constructor(api, logger, config) {
+  constructor(logger, config, api) {
+    const { Characteristic, Service, Formats, Perms } = api.hap;
+    this.hap = api.hap;
+
     /** @type {HomebridgeLogger} */
     this.log = logger;
     /** @type {string} */
     this.name = config.name || "BOM Weather Station";
 
-    // Load community types and FakeGato - instance local, not global
-    /** @type {Object} */
-        this.CommunityTypes = require("hap-nodejs-community-types")(api.hap);
+    class AirPressureCharacteristic extends Characteristic {
+      constructor() {
+        super("Air Pressure", EVE_AIR_PRESSURE_CHAR_UUID, {
+          format: Formats.UINT16,
+          unit: "hPa",
+          minValue: 700,
+          maxValue: 1100,
+          minStep: 1,
+          perms: [Perms.PAIRED_READ, Perms.NOTIFY]
+        });
+        this.value = this.getDefaultValue();
+      }
+    }
+
+    class AirPressureService extends Service {
+      constructor(displayName, subtype) {
+        super(displayName, EVE_AIR_PRESSURE_SERVICE_UUID, subtype);
+        this.addCharacteristic(AirPressureCharacteristic);
+        this.addOptionalCharacteristic(Characteristic.Name);
+        this.addCharacteristic(Characteristic.StatusFault);
+        this.addCharacteristic(Characteristic.StatusActive);
+      }
+    }
+
+    /** @type {Function} */
+    this.AirPressureCharacteristic = AirPressureCharacteristic;
+    /** @type {typeof Service} */
+    this.AirPressureService = AirPressureService;
+    /** @type {Service|null} */
+    this.airPressureService = null;
     /** @type {Function} */
     this.FakeGatoHistoryService = require("fakegato-history")(api);
 
@@ -106,7 +138,8 @@ class BOMgovauAccessory {
     this.sensors = {
       temperature: true,
       humidity: true,
-      apparentTemp: true
+      apparentTemp: true,
+      pressure: true
     };
 
     if (config.sensors) {
@@ -128,17 +161,17 @@ class BOMgovauAccessory {
     // Current observations
     /** @type {Object} */
     this.obs = {
-      air_temp: 0,
-      press: 0,
-      rel_hum: 0,
-      apparent_t: 0
+      air_temp: undefined,
+      press: undefined,
+      rel_hum: undefined,
+      apparent_t: undefined
     };
     /** @type {number} */
     this.BOMdataExpires = 0;
     /** @type {Object|null} */
     this.history = null;
-    /** @type {boolean} */
-    this._updateLock = false; // Mutex for race condition prevention
+    /** @type {Promise<void>|null} */
+    this._updatePromise = null;
 
     // Setup services
     this.setupServices();
@@ -172,6 +205,22 @@ class BOMgovauAccessory {
     } catch {
       return false;
     }
+  }
+
+  /**
+   * Returns a finite observation value within the sensor's supported range.
+   *
+   * @param {string} field - BOM observation field
+   * @param {number} min - Inclusive minimum
+   * @param {number} max - Inclusive maximum
+   * @returns {number|undefined}
+   * @private
+   */
+  _getObservationValue(field, min, max) {
+    const value = this.obs[field];
+    return typeof value === "number" && Number.isFinite(value) && value >= min && value <= max
+      ? value
+      : undefined;
   }
 
   /**
@@ -259,13 +308,14 @@ class BOMgovauAccessory {
   /**
    * Sets up HomeKit services based on enabled sensors.
    * 
-   * Creates TemperatureSensor, HumiditySensor services and adds
-   * pressure characteristic to temperature service.
+   * Creates TemperatureSensor and HumiditySensor services.
    * Initializes FakeGato history on first enabled sensor.
    * 
    * @private
    */
   setupServices() {
+    const { Service, Characteristic } = this.hap;
+
     // Temperature Service
     if (this.sensors.temperature) {
       /** @type {Service} */
@@ -274,18 +324,11 @@ class BOMgovauAccessory {
         .setProps({ minValue: -100, maxValue: 100 })
         .onGet(this.getStateTemperature.bind(this));
 
-      // Add pressure characteristic (non-standard, added to temperature service)
-      this.temperatureService.addCharacteristic(this.CommunityTypes.AtmosphericPressureLevel)
-        .setProps({ format: Characteristic.Formats.UINT16, minValue: 800, maxValue: 1200 })
-        .onGet(this.getStatePressure.bind(this));
-
       // Service status
       this.temperatureService.addCharacteristic(Characteristic.StatusFault);
       this.temperatureService.addCharacteristic(Characteristic.StatusActive);
       this.temperatureService.setCharacteristic(Characteristic.StatusActive, false);
 
-      // Initialize FakeGato history (will be created on first enabled sensor)
-      this._initHistory();
     }
 
     // Apparent Temperature Service
@@ -301,8 +344,6 @@ class BOMgovauAccessory {
       this.apparentTempService.addCharacteristic(Characteristic.StatusActive);
       this.apparentTempService.setCharacteristic(Characteristic.StatusActive, false);
 
-      // Initialize FakeGato history if not already created
-      this._initHistory();
     }
 
     // Humidity Service
@@ -317,39 +358,55 @@ class BOMgovauAccessory {
       this.humidityService.setCharacteristic(Characteristic.StatusActive, false);
       this.humidityService.setCharacteristic(Characteristic.SerialNumber, "Station:" + this.name);
 
-      // Initialize FakeGato history if not already created
-      this._initHistory();
     }
+
+    if (this.sensors.pressure) {
+      this.airPressureService = new this.AirPressureService(this.name + " Air Pressure", "airPressure");
+      this.airPressureService.getCharacteristic(this.AirPressureCharacteristic)
+        .onGet(this.getStatePressure.bind(this));
+      this.airPressureService.setCharacteristic(Characteristic.StatusFault, true);
+      this.airPressureService.setCharacteristic(Characteristic.StatusActive, false);
+    }
+
+    this._initHistory();
   }
 
   /**
-   * Initializes FakeGato history on the first enabled sensor.
-   * 
-   * Creates history on temperature service if available, otherwise humidity.
-   * Only creates once per accessory instance.
+   * Initializes FakeGato weather history using the enabled sensor services.
+   *
+   * Weather history entries contain temperature, humidity, and pressure.
+   * Missing readings are recorded as zero to preserve the expected entry format.
    * 
    * @private
    */
   _initHistory() {
-    // Create FakeGato history on the first enabled sensor that supports it
-    if (!this.history && (this.sensors.temperature || this.sensors.humidity)) {
-      /** @type {Service|null} */
-      const primaryService = this.temperatureService || this.humidityService;
-      if (primaryService) {
-        primaryService.setCharacteristic(Characteristic.SerialNumber, "Station:" + this.name);
-        this.history = new this.FakeGatoHistoryService("weather", primaryService, { storage: "fs" });
-        this.log("[BOM gov au] Initialized FakeGato history on " + primaryService.displayName);
-      }
+    const sensorServices = [
+      this.temperatureService,
+      this.humidityService,
+      this.airPressureService
+    ].filter(Boolean);
+
+    if (!this.history && sensorServices.length) {
+      const historyAccessory = {
+        displayName: this.name,
+        log: this.log,
+        services: sensorServices
+      };
+      this.history = new this.FakeGatoHistoryService("weather", historyAccessory, {
+        storage: "fs"
+      });
+      this.log("[BOM gov au] Initialized FakeGato history");
     }
   }
 
   /**
    * Returns all HomeKit services for this accessory.
-   * 
+   *
    * @returns {Service[]} Array of HomeKit services
    */
   getServices() {
-    /** @type {Service[]} */
+    const { Service, Characteristic } = this.hap;
+
     const services = [
       new Service.AccessoryInformation()
         .setCharacteristic(Characteristic.Manufacturer, "PCoombe")
@@ -367,13 +424,19 @@ class BOMgovauAccessory {
     if (this.sensors.humidity && this.humidityService) {
       services.push(this.humidityService);
     }
+    if (this.sensors.pressure && this.airPressureService) {
+      services.push(this.airPressureService);
+    }
+    if (this.history) {
+      services.push(this.history);
+    }
 
     return services;
   }
 
   /**
    * Shutdown method for cleanup.
-   * 
+   *
    * Called by Homebridge when accessory is removed.
    * Clears the periodic update interval.
    */
@@ -387,194 +450,218 @@ class BOMgovauAccessory {
 
   /**
    * Fetches and updates weather observations from BOM.
-   * 
-   * Uses mutex lock to prevent concurrent fetches (race condition protection).
-   * Parses BOM timestamp and sets data expiry based on update frequency.
-   * Updates all enabled sensor characteristics and logs to FakeGato history.
-   * 
+   *
+   * Concurrent callers share the same in-flight request.
+   *
    * @async
    * @returns {Promise<void>}
    */
-  async updateObservations() {
-    // Mutex to prevent concurrent fetches (race condition fix)
-    if (this._updateLock) {
-      this.log("[BOM gov au] Update already in progress, skipping");
-      return;
+  updateObservations() {
+    if (!this._updatePromise) {
+      this._updatePromise = this._performObservationUpdate()
+        .finally(() => {
+          this._updatePromise = null;
+        });
     }
+    return this._updatePromise;
+  }
+
+  /**
+   * Fetches observations, updates sensor availability, and records history.
+   *
+   * @returns {Promise<void>}
+   * @private
+   */
+  async _performObservationUpdate() {
+    const { Characteristic } = this.hap;
 
     /** @type {number} */
     const now = Date.now();
 
-    if (now >= this.BOMdataExpires) {
-      this._updateLock = true;
-      this.log("[BOM gov au] Current Time is " + now + ", BOM data expires at " + this.BOMdataExpires);
-      this.log("[BOM gov au] Updating observations from BOM.");
-
-      try {
-        /** @type {Object} */
-        const json = await this._fetchStationJson();
-
-        this.obs = json.observations.data[0];
-        this.header = json.observations.header[0];
-
-        this.log("[BOM gov au] Observations retrieved for " + this.header.name + ", " + this.header.state);
-
-        const fetchedAt = Date.now();
-        // Parse BOM timestamp (format: YYYYMMDDHHMMSS)
-        const timestamp = this.obs.aifstime_utc;
-        const validTimestamp = typeof timestamp === "string" && /^\d{14}$/.test(timestamp);
-        /** @type {number} */
-        const BOMyear = validTimestamp ? parseInt(timestamp.substr(0, 4)) : NaN;
-        /** @type {number} */
-        const BOMmonth = validTimestamp ? parseInt(timestamp.substr(4, 2)) - 1 : NaN;
-        /** @type {number} */
-        const BOMday = validTimestamp ? parseInt(timestamp.substr(6, 2)) : NaN;
-        /** @type {number} */
-        const BOMhour = validTimestamp ? parseInt(timestamp.substr(8, 2)) : NaN;
-        /** @type {number} */
-        const BOMmin = validTimestamp ? parseInt(timestamp.substr(10, 2)) : NaN;
-        /** @type {number} */
-        const BOMsec = validTimestamp ? parseInt(timestamp.substr(12, 2)) : NaN;
-        const observationTime = validTimestamp
-          ? Date.UTC(BOMyear, BOMmonth, BOMday, BOMhour, BOMmin, BOMsec)
-          : NaN;
-        const observationExpiry = observationTime + this.updateFrequency;
-
-        // Use the observation expiry if it is still ahead; otherwise wait a full interval after fetch.
-        this.BOMdataExpires = Number.isFinite(observationExpiry) && observationExpiry > fetchedAt
-          ? observationExpiry
-          : fetchedAt + this.updateFrequency;
-        this.log("[BOM gov au] BOM data will expire at " + new Date(this.BOMdataExpires).toLocaleString() + " which is in " +
-          ((this.BOMdataExpires - fetchedAt) / 1000 / 60).toFixed(1) + "min");
-
-        // Update characteristics
-        if (this.sensors.temperature && this.temperatureService) {
-          this.temperatureService.setCharacteristic(Characteristic.StatusActive, true);
-          this.temperatureService.setCharacteristic(Characteristic.StatusFault, false);
-          this.temperatureService.updateCharacteristic(Characteristic.CurrentTemperature,
-            isNaN(this.obs.air_temp) ? 0 : this.obs.air_temp);
-          this.temperatureService.updateCharacteristic(this.CommunityTypes.AtmosphericPressureLevel,
-            isNaN(this.obs.press) ? 0 : this.obs.press);
-        }
-
-        if (this.sensors.apparentTemp && this.apparentTempService) {
-          this.apparentTempService.setCharacteristic(Characteristic.StatusActive, true);
-          this.apparentTempService.setCharacteristic(Characteristic.StatusFault, false);
-          this.apparentTempService.updateCharacteristic(Characteristic.CurrentTemperature,
-            isNaN(this.obs.apparent_t) ? 0 : this.obs.apparent_t);
-        }
-
-        if (this.sensors.humidity && this.humidityService) {
-          this.humidityService.setCharacteristic(Characteristic.StatusActive, true);
-          this.humidityService.setCharacteristic(Characteristic.StatusFault, false);
-          this.humidityService.updateCharacteristic(Characteristic.CurrentRelativeHumidity,
-            isNaN(this.obs.rel_hum) ? 0 : this.obs.rel_hum);
-        }
-
-        // FakeGato logging
-        if (this.history) {
-          this.history.addEntry({
-            time: Math.floor(now / 1000),
-            temp: this.obs.air_temp,
-            pressure: this.obs.press,
-            humidity: this.obs.rel_hum
-          });
-          this.log("[BOM gov au] Added FakeGato history entry");
-        }
-
-      } catch (error) {
-        this.log.error("[BOM gov au] Failed to fetch BOM data:", error.message);
-
-        if (this.sensors.temperature && this.temperatureService) {
-          this.temperatureService.setCharacteristic(Characteristic.StatusFault, true);
-        }
-        if (this.sensors.apparentTemp && this.apparentTempService) {
-          this.apparentTempService.setCharacteristic(Characteristic.StatusFault, true);
-        }
-        if (this.sensors.humidity && this.humidityService) {
-          this.humidityService.setCharacteristic(Characteristic.StatusFault, true);
-        }
-      } finally {
-        this._updateLock = false;
-      }
-    } else {
+    if (now < this.BOMdataExpires) {
       this.log("[BOM gov au] BOM data will expire at " + new Date(this.BOMdataExpires).toLocaleString() + " which is in " +
         ((this.BOMdataExpires - now) / 1000 / 60).toFixed(1) + "min");
+      return;
+    }
+
+    this.log("[BOM gov au] Current Time is " + now + ", BOM data expires at " + this.BOMdataExpires);
+    this.log("[BOM gov au] Updating observations from BOM.");
+
+    try {
+      const json = await this._fetchStationJson();
+      const observation = json?.observations?.data?.[0];
+      const header = json?.observations?.header?.[0];
+      if (!observation || typeof observation !== "object" || !header || typeof header !== "object") {
+        throw new Error("BOM response is missing observation data or station header");
+      }
+
+      this.obs = observation;
+      this.header = header;
+      this.log("[BOM gov au] Observations retrieved for " + this.header.name + ", " + this.header.state);
+
+      const fetchedAt = Date.now();
+      const timestamp = this.obs.aifstime_utc;
+      const validTimestamp = typeof timestamp === "string" && /^\d{14}$/.test(timestamp);
+      /** @type {number} */
+      const BOMyear = validTimestamp ? parseInt(timestamp.slice(0, 4), 10) : NaN;
+      /** @type {number} */
+      const BOMmonth = validTimestamp ? parseInt(timestamp.slice(4, 6), 10) - 1 : NaN;
+      /** @type {number} */
+      const BOMday = validTimestamp ? parseInt(timestamp.slice(6, 8), 10) : NaN;
+      /** @type {number} */
+      const BOMhour = validTimestamp ? parseInt(timestamp.slice(8, 10), 10) : NaN;
+      /** @type {number} */
+      const BOMmin = validTimestamp ? parseInt(timestamp.slice(10, 12), 10) : NaN;
+      /** @type {number} */
+      const BOMsec = validTimestamp ? parseInt(timestamp.slice(12, 14), 10) : NaN;
+      /** @type {Date|null} */
+      const observationDate = validTimestamp ? new Date(0) : null;
+      observationDate?.setUTCFullYear(BOMyear, BOMmonth, BOMday);
+      observationDate?.setUTCHours(BOMhour, BOMmin, BOMsec, 0);
+      /** @type {number} */
+      const observationTime = observationDate?.getTime() ?? NaN;
+      const observationExpiry = observationTime + this.updateFrequency;
+
+      this.BOMdataExpires = Number.isFinite(observationExpiry) && observationExpiry > fetchedAt
+        ? observationExpiry
+        : fetchedAt + this.updateFrequency;
+      this.log("[BOM gov au] BOM data will expire at " + new Date(this.BOMdataExpires).toLocaleString() + " which is in " +
+        ((this.BOMdataExpires - fetchedAt) / 1000 / 60).toFixed(1) + "min");
+
+      const temperature = this._getObservationValue("air_temp", -100, 100);
+      const apparentTemp = this._getObservationValue("apparent_t", -100, 100);
+      const humidity = this._getObservationValue("rel_hum", 0, 100);
+      const pressure = this._getObservationValue("press", 700, 1100);
+
+      if (this.sensors.temperature && this.temperatureService) {
+        this.temperatureService.setCharacteristic(Characteristic.StatusActive, temperature !== undefined);
+        this.temperatureService.setCharacteristic(Characteristic.StatusFault, temperature === undefined);
+        if (temperature !== undefined) {
+          this.temperatureService.updateCharacteristic(Characteristic.CurrentTemperature, temperature);
+        }
+      }
+
+      if (this.sensors.apparentTemp && this.apparentTempService) {
+        this.apparentTempService.setCharacteristic(Characteristic.StatusActive, apparentTemp !== undefined);
+        this.apparentTempService.setCharacteristic(Characteristic.StatusFault, apparentTemp === undefined);
+        if (apparentTemp !== undefined) {
+          this.apparentTempService.updateCharacteristic(Characteristic.CurrentTemperature, apparentTemp);
+        }
+      }
+
+      if (this.sensors.humidity && this.humidityService) {
+        this.humidityService.setCharacteristic(Characteristic.StatusActive, humidity !== undefined);
+        this.humidityService.setCharacteristic(Characteristic.StatusFault, humidity === undefined);
+        if (humidity !== undefined) {
+          this.humidityService.updateCharacteristic(Characteristic.CurrentRelativeHumidity, humidity);
+        }
+      }
+
+      if (this.sensors.pressure && this.airPressureService) {
+        this.airPressureService.setCharacteristic(Characteristic.StatusActive, pressure !== undefined);
+        this.airPressureService.setCharacteristic(Characteristic.StatusFault, pressure === undefined);
+        if (pressure !== undefined) {
+          this.airPressureService.updateCharacteristic(this.AirPressureCharacteristic, pressure);
+        }
+      }
+
+      if (this.history) {
+        this.history.addEntry({
+          time: Math.floor(fetchedAt / 1000),
+          temp: temperature ?? 0,
+          humidity: humidity ?? 0,
+          pressure: pressure ?? 0
+        });
+        this.log("[BOM gov au] Added FakeGato history entry");
+      }
+    } catch (error) {
+      this.log.error("[BOM gov au] Failed to fetch BOM data:", error.message);
+
+      if (this.sensors.temperature && this.temperatureService) {
+        this.temperatureService.setCharacteristic(Characteristic.StatusActive, false);
+        this.temperatureService.setCharacteristic(Characteristic.StatusFault, true);
+      }
+      if (this.sensors.apparentTemp && this.apparentTempService) {
+        this.apparentTempService.setCharacteristic(Characteristic.StatusActive, false);
+        this.apparentTempService.setCharacteristic(Characteristic.StatusFault, true);
+      }
+      if (this.sensors.humidity && this.humidityService) {
+        this.humidityService.setCharacteristic(Characteristic.StatusActive, false);
+        this.humidityService.setCharacteristic(Characteristic.StatusFault, true);
+      }
+      if (this.sensors.pressure && this.airPressureService) {
+        this.airPressureService.setCharacteristic(Characteristic.StatusActive, false);
+        this.airPressureService.setCharacteristic(Characteristic.StatusFault, true);
+      }
     }
   }
 
   /**
-   * Gets current temperature state.
-   * 
-   * @async
-   * @returns {Promise<number>} Temperature in Celsius, 0 if unavailable
+   * Gets the current air temperature.
+   *
+   * @returns {Promise<number>} Temperature in Celsius
+   * @throws {Error} If temperature is unavailable or outside the supported range
    */
   async getStateTemperature() {
-    try {
-      await this.updateObservations();
-      return isNaN(this.obs.air_temp) ? 0 : this.obs.air_temp;
-    } catch (error) {
-      this.log.error("[BOM gov au] getStateTemperature error:", error.message);
-      return 0; // Safe default
+    await this.updateObservations();
+    const value = this._getObservationValue("air_temp", -100, 100);
+    if (value === undefined) {
+      throw new Error("BOM temperature is unavailable or outside the supported range");
     }
+    return value;
   }
 
   /**
-   * Gets current atmospheric pressure state.
-   * 
-   * @async
-   * @returns {Promise<number>} Pressure in hPa, 0 if unavailable
+   * Gets the current air pressure.
+   *
+   * @returns {Promise<number>} Pressure in hPa
+   * @throws {Error} If pressure is unavailable or outside the supported range
    */
   async getStatePressure() {
-    try {
-      await this.updateObservations();
-      return isNaN(this.obs.press) ? 0 : this.obs.press;
-    } catch (error) {
-      this.log.error("[BOM gov au] getStatePressure error:", error.message);
-      return 0; // Safe default
+    await this.updateObservations();
+    const value = this._getObservationValue("press", 700, 1100);
+    if (value === undefined) {
+      throw new Error("BOM pressure is unavailable or outside the supported range");
     }
+    return value;
   }
 
   /**
-   * Gets current apparent temperature state.
-   * 
-   * @async
-   * @returns {Promise<number>} Apparent temperature in Celsius, 0 if unavailable
+   * Gets the current apparent temperature.
+   *
+   * @returns {Promise<number>} Apparent temperature in Celsius
+   * @throws {Error} If apparent temperature is unavailable or outside the supported range
    */
   async getStateApparentTemperature() {
-    try {
-      await this.updateObservations();
-      return isNaN(this.obs.apparent_t) ? 0 : this.obs.apparent_t;
-    } catch (error) {
-      this.log.error("[BOM gov au] getStateApparentTemperature error:", error.message);
-      return 0; // Safe default
+    await this.updateObservations();
+    const value = this._getObservationValue("apparent_t", -100, 100);
+    if (value === undefined) {
+      throw new Error("BOM apparent temperature is unavailable or outside the supported range");
     }
+    return value;
   }
 
   /**
-   * Gets current humidity state.
-   * 
-   * @async
-   * @returns {Promise<number>} Relative humidity percentage, 0 if unavailable
+   * Gets the current relative humidity.
+   *
+   * @returns {Promise<number>} Relative humidity percentage
+   * @throws {Error} If humidity is unavailable or outside the supported range
    */
   async getStateHumidity() {
-    try {
-      await this.updateObservations();
-      return isNaN(this.obs.rel_hum) ? 0 : this.obs.rel_hum;
-    } catch (error) {
-      this.log.error("[BOM gov au] getStateHumidity error:", error.message);
-      return 0; // Safe default
+    await this.updateObservations();
+    const value = this._getObservationValue("rel_hum", 0, 100);
+    if (value === undefined) {
+      throw new Error("BOM humidity is unavailable or outside the supported range");
     }
+    return value;
   }
 }
 
 /**
  * Homebridge plugin entry point.
- * 
- * Registers the BOMgovau accessory with Homebridge.
- * 
+ *
  * @param {HomebridgeAPI} api - Homebridge API instance
  */
-module.exports = (api) => {
+module.exports = api => {
   api.registerAccessory(PLUGIN_NAME, "BOMgovau", BOMgovauAccessory);
 };
