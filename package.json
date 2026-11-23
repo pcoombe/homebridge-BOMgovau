@@ -33,8 +33,8 @@
   },
   "main": "index.js",
   "scripts": {
-    "lint": "eslint index.js scripts/test-bom-feed.js",
-    "parse": "node --check index.js && node --check scripts/test-bom-feed.js",
+    "lint": "eslint index.js lib/bom-client.js scripts/test-bom-feed.js",
+    "parse": "node --check index.js && node --check lib/bom-client.js && node --check scripts/test-bom-feed.js",
     "test:bom-feed": "node scripts/test-bom-feed.js"
   },
   "dependencies": {

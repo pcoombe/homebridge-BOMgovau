@@ -10,8 +10,7 @@
 "use strict";
 
 const pjson = require("./package.json");
-const dns = require("node:dns").promises;
-const { BlockList } = require("node:net");
+const BomClient = require("./lib/bom-client");
 
 /** @const {string} Plugin name from package.json */
 const PLUGIN_NAME = pjson.name;
@@ -20,29 +19,8 @@ const PLUGIN_VERSION = pjson.version;
 const DEFAULT_UPDATE_FREQUENCY = 30 * 60 * 1000;
 const MIN_UPDATE_FREQUENCY = 60 * 1000;
 const MAX_UPDATE_FREQUENCY = 24 * 60 * 60 * 1000;
-const FETCH_TIMEOUT_MS = 10 * 1000;
-const MAX_RESPONSE_BYTES = 1024 * 1024;
-const MAX_REDIRECTS = 3;
 const EVE_AIR_PRESSURE_SERVICE_UUID = "E863F00A-079E-48FF-8F27-9C2605A29F52";
 const EVE_AIR_PRESSURE_CHAR_UUID = "E863F10F-079E-48FF-8F27-9C2605A29F52";
-const nonPublicAddresses = new BlockList();
-[
-  ["0.0.0.0", 8, "ipv4"],
-  ["10.0.0.0", 8, "ipv4"],
-  ["100.64.0.0", 10, "ipv4"],
-  ["127.0.0.0", 8, "ipv4"],
-  ["169.254.0.0", 16, "ipv4"],
-  ["172.16.0.0", 12, "ipv4"],
-  ["192.168.0.0", 16, "ipv4"],
-  ["224.0.0.0", 4, "ipv4"],
-  ["::", 128, "ipv6"],
-  ["::1", 128, "ipv6"],
-  ["fc00::", 7, "ipv6"],
-  ["fe80::", 10, "ipv6"],
-  ["ff00::", 8, "ipv6"]
-].forEach(([address, prefix, family]) => {
-  nonPublicAddresses.addSubnet(address, prefix, family);
-});
 
 /**
  * BOMgovauAccessory - Homebridge accessory for BOM weather station data
@@ -112,8 +90,6 @@ class BOMgovauAccessory {
     this.FakeGatoHistoryService = require("fakegato-history")(api);
 
     // Station configuration
-    /** @type {string} */
-    this.stationURL = config.stationURL || "http://reg.bom.gov.au/fwo/IDN60903/IDN60903.94926.json";
     /** @type {number} */
     this.updateFrequency = Number.isSafeInteger(config.updateFrequency) &&
       config.updateFrequency >= MIN_UPDATE_FREQUENCY &&
@@ -127,11 +103,14 @@ class BOMgovauAccessory {
         ". Using " + this.updateFrequency + " ms.");
     }
 
-    // Validate stationURL
-    if (!this._isValidUrl(this.stationURL)) {
-      this.log.error("[BOM gov au] Invalid stationURL: " + this.stationURL + ". Using default.");
-      this.stationURL = "http://reg.bom.gov.au/fwo/IDN60903/IDN60903.94926.json";
-    }
+    this.bomClient = new BomClient({
+      stationURL: config.stationURL,
+      name: this.name,
+      updateFrequency: this.updateFrequency,
+      log: this.log
+    });
+    /** @type {string} */
+    this.stationURL = this.bomClient.stationURL;
 
     // Sensor configuration
     /** @type {Object.<string, boolean>} */
@@ -185,29 +164,6 @@ class BOMgovauAccessory {
   }
 
   /**
-   * Validates a URL string.
-   * 
-   * @param {string} string - URL to validate
-   * @returns {boolean} True if valid URL
-   * @private
-   */
-  _isValidUrl(string) {
-    try {
-      const url = new URL(string);
-      if (url.protocol !== "http:" && url.protocol !== "https:") {
-        return false;
-      }
-      if (url.username || url.password) {
-        return false;
-      }
-      const hostname = url.hostname.toLowerCase();
-      return hostname === "bom.gov.au" || hostname.endsWith(".bom.gov.au");
-    } catch {
-      return false;
-    }
-  }
-
-  /**
    * Returns a finite observation value within the sensor's supported range.
    *
    * @param {string} field - BOM observation field
@@ -221,88 +177,6 @@ class BOMgovauAccessory {
     return typeof value === "number" && Number.isFinite(value) && value >= min && value <= max
       ? value
       : undefined;
-  }
-
-  /**
-   * Resolves a station host and prevents DNS resolution to private networks.
-   *
-   * @param {string} stationURL - BOM station URL
-   * @returns {Promise<void>}
-   * @private
-   */
-  async _validateStationHost(stationURL) {
-    const url = new URL(stationURL);
-    const addresses = await dns.lookup(url.hostname, { all: true, verbatim: true });
-    if (!addresses.length || addresses.some(({ address, family }) =>
-      nonPublicAddresses.check(address, family === 6 ? "ipv6" : "ipv4"))) {
-      throw new Error("Station host resolves to a non-public IP address");
-    }
-  }
-
-  /**
-   * Fetches the station URL while rejecting redirects outside BOM and limiting response size.
-   *
-   * @returns {Promise<Object>}
-   * @private
-   */
-  async _fetchStationJson() {
-    let currentURL = this.stationURL;
-
-    for (let redirectCount = 0; redirectCount <= MAX_REDIRECTS; redirectCount++) {
-      if (!this._isValidUrl(currentURL)) {
-        throw new Error("Station URL is not an approved BOM host");
-      }
-      await this._validateStationHost(currentURL);
-
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-
-      try {
-        const response = await fetch(currentURL, {
-          headers: { "User-Agent": PLUGIN_NAME + "/" + PLUGIN_VERSION + " (" + this.name + ")" },
-          redirect: "manual",
-          signal: controller.signal
-        });
-
-        if (response.status >= 300 && response.status < 400) {
-          const location = response.headers.get("location");
-          if (!location) {
-            throw new Error("Redirect response missing Location header");
-          }
-          currentURL = new URL(location, currentURL).toString();
-          continue;
-        }
-
-        if (!response.ok) {
-          throw new Error("HTTP error " + response.status);
-        }
-
-        const contentLength = Number(response.headers.get("content-length"));
-        if (Number.isFinite(contentLength) && contentLength > MAX_RESPONSE_BYTES) {
-          throw new Error("BOM response exceeds maximum allowed size");
-        }
-
-        if (!response.body) {
-          throw new Error("BOM response has no body");
-        }
-
-        let receivedBytes = 0;
-        const chunks = [];
-        for await (const chunk of response.body) {
-          receivedBytes += chunk.length;
-          if (receivedBytes > MAX_RESPONSE_BYTES) {
-            throw new Error("BOM response exceeds maximum allowed size");
-          }
-          chunks.push(Buffer.from(chunk));
-        }
-
-        return JSON.parse(Buffer.concat(chunks).toString("utf8"));
-      } finally {
-        clearTimeout(timeout);
-      }
-    }
-
-    throw new Error("Too many redirects");
   }
 
   /**
@@ -488,43 +362,12 @@ class BOMgovauAccessory {
     this.log("[BOM gov au] Updating observations from BOM.");
 
     try {
-      const json = await this._fetchStationJson();
-      const observation = json?.observations?.data?.[0];
-      const header = json?.observations?.header?.[0];
-      if (!observation || typeof observation !== "object" || !header || typeof header !== "object") {
-        throw new Error("BOM response is missing observation data or station header");
-      }
-
+      const { observation, header, fetchedAt, expiresAt } = await this.bomClient.fetchObservations();
       this.obs = observation;
       this.header = header;
       this.log("[BOM gov au] Observations retrieved for " + this.header.name + ", " + this.header.state);
 
-      const fetchedAt = Date.now();
-      const timestamp = this.obs.aifstime_utc;
-      const validTimestamp = typeof timestamp === "string" && /^\d{14}$/.test(timestamp);
-      /** @type {number} */
-      const BOMyear = validTimestamp ? parseInt(timestamp.slice(0, 4), 10) : NaN;
-      /** @type {number} */
-      const BOMmonth = validTimestamp ? parseInt(timestamp.slice(4, 6), 10) - 1 : NaN;
-      /** @type {number} */
-      const BOMday = validTimestamp ? parseInt(timestamp.slice(6, 8), 10) : NaN;
-      /** @type {number} */
-      const BOMhour = validTimestamp ? parseInt(timestamp.slice(8, 10), 10) : NaN;
-      /** @type {number} */
-      const BOMmin = validTimestamp ? parseInt(timestamp.slice(10, 12), 10) : NaN;
-      /** @type {number} */
-      const BOMsec = validTimestamp ? parseInt(timestamp.slice(12, 14), 10) : NaN;
-      /** @type {Date|null} */
-      const observationDate = validTimestamp ? new Date(0) : null;
-      observationDate?.setUTCFullYear(BOMyear, BOMmonth, BOMday);
-      observationDate?.setUTCHours(BOMhour, BOMmin, BOMsec, 0);
-      /** @type {number} */
-      const observationTime = observationDate?.getTime() ?? NaN;
-      const observationExpiry = observationTime + this.updateFrequency;
-
-      this.BOMdataExpires = Number.isFinite(observationExpiry) && observationExpiry > fetchedAt
-        ? observationExpiry
-        : fetchedAt + this.updateFrequency;
+      this.BOMdataExpires = expiresAt;
       this.log("[BOM gov au] BOM data will expire at " + new Date(this.BOMdataExpires).toLocaleString() + " which is in " +
         ((this.BOMdataExpires - fetchedAt) / 1000 / 60).toFixed(1) + "min");
 

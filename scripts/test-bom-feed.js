@@ -164,8 +164,8 @@ async function main() {
     assert.equal(pressure.props.unit, "hPa");
     assert.equal(pressure.props.minValue, 700);
     assert.equal(pressure.props.maxValue, 1100);
-    const fetchStationJson = accessory._fetchStationJson.bind(accessory);
-    accessory._fetchStationJson = async () => {
+    const fetchObservations = accessory.bomClient.fetchObservations.bind(accessory.bomClient);
+    accessory.bomClient.fetchObservations = async () => {
       throw new Error("Simulated initial BOM request failure");
     };
     await assert.rejects(accessory.getStateTemperature(), /temperature is unavailable/,
@@ -189,9 +189,9 @@ async function main() {
     logErrors.length = 0;
 
     let fetchCount = 0;
-    accessory._fetchStationJson = async () => {
+    accessory.bomClient.fetchObservations = async () => {
       fetchCount++;
-      return fetchStationJson();
+      return fetchObservations();
     };
     const [temperatureReading, humidityReading] = await Promise.all([
       accessory.getStateTemperature(),
@@ -262,7 +262,7 @@ async function main() {
     const cachedTemperature = accessory.obs.air_temp;
     const cachedExpiry = accessory.BOMdataExpires;
     accessory.BOMdataExpires = 0;
-    accessory._fetchStationJson = async () => {
+    accessory.bomClient.fetchObservations = async () => {
       throw new Error("Simulated refresh failure");
     };
     assert.equal(await accessory.getStateTemperature(), cachedTemperature,
