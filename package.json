@@ -1,6 +1,7 @@
 {
   "name": "homebridge-bomgovau-v2",
-  "version": "0.2.6",
+  "displayName": "Homebridge BOM Weather",
+  "version": "0.2.7",
   "description": "Makes BOM.gov.au data available in your Homebridge(Homekit) setup",
   "homepage": "https://github.com/pcoombe/homebridge-BOMgovau",
   "license": "Apache-2",
@@ -17,19 +18,19 @@
     "humidity",
     "pressure"
   ],
-  "bugs": {
-    "url": "https://github.com/pcoombe/homebridge-BOMgovau/issues"
-  },
-  "engines": {
-    "node": ">=18.0.0",
-    "homebridge": ">=2.0.0"
-  },
   "author": {
     "name": "Stephen Cohen, Peter Coombe"
   },
   "repository": {
     "type": "git",
     "url": "git://github.com/pcoombe/homebridge-BOMgovau"
+  },
+  "bugs": {
+    "url": "https://github.com/pcoombe/homebridge-BOMgovau/issues"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "homebridge": ">=2.0.0"
   },
   "main": "index.js",
   "scripts": {

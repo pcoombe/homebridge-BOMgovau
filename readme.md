@@ -1,8 +1,9 @@
 
 # Homebridge-BOMgovau-v2
-
-[![npm version](https://img.shields.io/npm/v/homebridge-bomgovau-v2.svg)](https://www.npmjs.com/package/homebridge-bomgovau-v2)
 [![Homebridge 2.x](https://img.shields.io/badge/Homebridge-2.x-blue.svg)](https://homebridge.io/)
+[![GitHub last commit](https://img.shields.io/github/last-commit/pcoombe/homebridge-BOMgovau.svg)](https://github.com/pcoombe/homebridge-BOMgovau)
+[![npm version](https://img.shields.io/npm/v/homebridge-bomgovau-v2.svg)](https://www.npmjs.com/package/homebridge-bomgovau-v2)
+[![npm](https://img.shields.io/npm/dt/homebridge-bomgovau-v2.svg)](https://www.npmjs.com/package/homebridge-bomgovau-v2)
 [![License](https://img.shields.io/badge/license-Apache--2.0-green.svg)](LICENSE)
 
 Retrieves official weather data (temperature, humidity, apparent temperature, air pressure) from the Australian [Bureau of Meteorology (BOM)](http://www.bom.gov.au) and exposes it to Apple HomeKit via Homebridge.
@@ -195,10 +196,15 @@ The plugin supports [FakeGato History](https://github.com/simont77/fakegato-hist
 
 ## Version History
 
-| Version | Changes |
-|---------|---------|
-| **0.2.0** | Homebridge 2.x compatibility, bug fixes, JSDoc, npm dependencies |
-| 0.1.6 | Initial release with basic temperature/humidity/pressure support |
+| Version | Date | Major Changes |
+|---------|------|---------------|
+| **0.2.7** | 2026-11 | Current stable release |
+| **0.2.6** | 2026-11 | Fix BOM read errors and use fallback values |
+| **0.2.5** | 2026-11 | Separate BOM client module |
+| **0.2.4** | 2026-11 | Improve Homebridge v2 compatibility |
+| **0.2.3** | 2026-11 | Child bridge failure fix |
+| **0.2.0** | 2026-11 | **Homebridge 2.x compatibility**; ES6 class-based accessory; CI/CD pipeline |
+| **0.1.6** | 2022-01 | Initial release (original by Stephen Cohen); temperature, humidity, apparent temperature, and pressure sensors |
 
 ---
 
@@ -214,4 +220,5 @@ Issues and PRs welcome at [github.com/pcoombe/homebridge-BOMgovau](https://githu
 
 ## Disclaimer
 
-This plugin is not affiliated with the Australian Bureau of Meteorology. Weather data sourced from [BOM public API](http://www.bom.gov.au/other/access.shtml).
+This plugin is not affiliated with the Australian Bureau of Meteorology. 
+Weather data sourced from [BOM public API](http://www.bom.gov.au/other/access.shtml).
