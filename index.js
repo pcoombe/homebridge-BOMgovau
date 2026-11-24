@@ -211,7 +211,7 @@ class BOMgovauAccessory {
     // Temperature Service
     if (this.sensors.temperature) {
       /** @type {Service} */
-      this.temperatureService = new Service.TemperatureSensor(this.name);
+      this.temperatureService = new Service.TemperatureSensor(this.name + " Temp");
       this.temperatureService.getCharacteristic(Characteristic.CurrentTemperature)
         .setProps({ minValue: -100, maxValue: 100 })
         .onGet(this.getStateTemperature.bind(this));
@@ -241,7 +241,7 @@ class BOMgovauAccessory {
     // Humidity Service
     if (this.sensors.humidity) {
       /** @type {Service} */
-      this.humidityService = new Service.HumiditySensor(this.name);
+      this.humidityService = new Service.HumiditySensor(this.name + " Humidity");
       this.humidityService.getCharacteristic(Characteristic.CurrentRelativeHumidity)
         .onGet(this.getStateHumidity.bind(this));
 
@@ -376,11 +376,11 @@ class BOMgovauAccessory {
       return;
     }
 
-    this.log("[BOM gov au] Current Time is " + new Date(now).toLocaleString() +
+    this.log.debug("[BOM gov au] Current Time is " + new Date(now).toLocaleString() +
       ", BOM data expires at " + (this.BOMdataExpires > 0
         ? new Date(this.BOMdataExpires).toLocaleString()
         : "not set"));
-    this.log("[BOM gov au] Updating observations from BOM.");
+    this.log.debug("[BOM gov au] Updating observations from BOM.");
 
     try {
       const { observation, header, fetchedAt, expiresAt } = await this.bomClient.fetchObservations();
@@ -454,7 +454,7 @@ class BOMgovauAccessory {
           humidity: humidity ?? 0,
           pressure: pressure ?? 0
         });
-        this.log("[BOM gov au] Added FakeGato history entry");
+        this.log.debug("[BOM gov au] Added FakeGato history entry");
       }
     } catch (error) {
       this.log.error("[BOM gov au] Failed to fetch BOM data:", error.message);
