@@ -1,0 +1,66 @@
+{
+  "pluginAlias": "BOMgovau",
+  "pluginType": "accessory",
+  "singular": false,
+  "schema": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "title": "Accessory Name",
+        "type": "string",
+        "default": "BOM Weather Station",
+        "description": "Display name shown in HomeKit"
+      },
+      "stationURL": {
+        "title": "BOM Station URL",
+        "type": "string",
+        "default": "http://reg.bom.gov.au/fwo/IDN60903/IDN60903.94926.json",
+        "description": "JSON observation feed URL from BOM.gov.au. Find your station's JSON feed at bom.gov.au/australia/observations/"
+      },
+      "updateFrequency": {
+        "title": "Update Interval (milliseconds)",
+        "type": "integer",
+        "minimum": 60000,
+        "default": 1800000,
+        "description": "How often to fetch new observations from BOM. Minimum 60000 (1 minute). Default 1800000 (30 minutes)."
+      },
+      "sensors": {
+        "title": "Enabled Sensors",
+        "type": "object",
+        "properties": {
+          "temperature": {
+            "title": "Temperature",
+            "type": "boolean",
+            "default": true,
+            "description": "Enable the temperature sensor"
+          },
+          "humidity": {
+            "title": "Humidity",
+            "type": "boolean",
+            "default": true,
+            "description": "Enable the humidity sensor"
+          },
+          "apparentTemp": {
+            "title": "Apparent Temperature ('Feels Like')",
+            "type": "boolean",
+            "default": true,
+            "description": "Enable the apparent temperature sensor"
+          },
+          "pressure": {
+            "title": "Air Pressure (hPa)",
+            "type": "boolean",
+            "default": true,
+            "description": "Enable the separate Eve-compatible air pressure service"
+          }
+        },
+        "default": {
+          "temperature": true,
+          "humidity": true,
+          "apparentTemp": true,
+          "pressure": true
+        },
+        "description": "Enable or disable individual weather sensors"
+      }
+    }
+  }
+}

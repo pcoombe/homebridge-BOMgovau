@@ -103,16 +103,17 @@ The test needs network access to BOM. It exits with an error if loading or updat
 
 ### Configuring via Homebridge Config UI X
 
-If you use [Homebridge Config UI X](https://github.com/homebridge/homebridge-config-ui-x), this plugin can be configured through its graphical settings editor instead of editing `config.json` by hand — the plugin declares a configuration schema (`configSchema` in `package.json`) that Config UI X renders as a form:
+If you use [Homebridge Config UI X](https://github.com/homebridge/homebridge-config-ui-x), this plugin can be configured through its graphical settings editor instead of editing `config.json` by hand — the plugin declares a configuration schema (`config.schema.json`) that Config UI X renders as a form:
 
-1. Open Homebridge Config UI X
-2. Go to **Plugins** → **homebridge-bomgovau-v2** → **Configure**, or open **Accessories** and select your BOM Weather Station accessory
-3. Set the accessory name, BOM station URL, update interval, and enable/disable the sensors you want
-4. Save the configuration and restart Homebridge
+1. Install the plugin on your Homebridge server (the `config.schema.json` file must be present in the installed plugin folder)
+2. Open Homebridge Config UI X
+3. Go to **Accessories** and select your BOM Weather Station accessory
+4. Set the accessory name, BOM station URL, update interval, and enable/disable the sensors you want
+5. Save the configuration and restart Homebridge
 
 The UI options match the manual configuration options below: `name`, `stationURL`, `updateFrequency`, and `sensors` (temperature, humidity, apparent temperature, pressure). The defaults are the same as shown in the table below.
 
-> This plugin registers a Homebridge accessory, not a dynamic platform. Configure it under **Accessories** rather than **Platforms** in Config UI X.
+> This plugin registers a Homebridge accessory, not a dynamic platform. Configure it under **Accessories** rather than **Plugins** in Config UI X — each station is a separate accessory with its own configuration form.
 
 ---
 
@@ -211,7 +212,8 @@ The plugin supports [FakeGato History](https://github.com/simont77/fakegato-hist
 
 | Version | Date | Major Changes |
 |---------|------|---------------|
-| **0.3.0** | 2026-11 | Add configuration schema for **Homebridge Config UI X** |
+| **0.3.1** | 2026-11 | Move configuration schema to config.schema.json for Config UI X |
+| **0.3.0** | 2026-11 | Add configuration schema for Homebridge Config UI X |
 | **0.2.7** | 2026-11 | Improve all log levels |
 | **0.2.6** | 2026-11 | Fix BOM read errors and use fallback values |
 | **0.2.5** | 2026-11 | Separate BOM client module |
