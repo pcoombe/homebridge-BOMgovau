@@ -1,7 +1,7 @@
 {
   "name": "homebridge-bomgovau-v2",
   "displayName": "Homebridge BOM Weather",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Makes BOM.gov.au data available in your Homebridge(Homekit) setup",
   "homepage": "https://github.com/pcoombe/homebridge-BOMgovau",
   "license": "Apache-2",
@@ -42,6 +42,7 @@
     "fakegato-history": "^0.6.2"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "eslint": "^10.15.0"
   }
 }
